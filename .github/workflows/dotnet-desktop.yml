@@ -1,4 +1,4 @@
-name: Build BadSuccessor (Desktop .NET Framework)
+name: Build Desktop (.NET)
 
 on:
   push:
@@ -16,36 +16,44 @@ jobs:
         with:
           fetch-depth: 0
 
-      # OPTIONAL but recommended:
-      # Retarget project file(s) from v4.6.1 to v4.7.2 so the runner has the reference assemblies.
-      # If you prefer v4.8, change v4.7.2 -> v4.8 below.
-      - name: Retarget .NET Framework 4.6.1 -> 4.7.2 (optional, recommended)
+      - name: Find solution file
+        id: find_sln
+        shell: pwsh
+        run: |
+          $sln = Get-ChildItem -Path . -Recurse -Filter *.sln | Select-Object -First 1
+          if (-not $sln) { Write-Error "No .sln file found in repo."; exit 1 }
+          Write-Output "##[set-output name=path;]$($sln.FullName)"
+          Write-Output "Found solution: $($sln.FullName)"
+
+      - name: Show repository tree (debug)
+        run: Get-ChildItem -Recurse -Force -File | Select-Object FullName | ForEach-Object { Write-Output $_.FullName }
+
+      # OPTIONAL: Retarget v4.6.1 -> v4.7.2 to avoid MSB3644 on GitHub runners
+      - name: Retarget .csproj files from v4.6.1 -> v4.7.2 (recommended)
         shell: pwsh
         run: |
           $pattern = '<TargetFrameworkVersion>v4.6.1</TargetFrameworkVersion>'
           $replacement = '<TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>'
           Get-ChildItem -Path . -Recurse -Filter *.csproj | ForEach-Object {
             $p = $_.FullName
-            $content = Get-Content $p -Raw
-            if ($content -like "*v4.6.1*") {
-              $content -replace [regex]::Escape($pattern), $replacement | Set-Content $p -Encoding UTF8
-              Write-Output "Updated $p"
-            } else {
-              Write-Output "No v4.6.1 target in $p"
+            $text = Get-Content $p -Raw
+            if ($text -like "*v4.6.1*") {
+              $text -replace [regex]::Escape($pattern), $replacement | Set-Content $p -Encoding UTF8
+              Write-Output "Patched $p"
             }
           }
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      - name: Setup NuGet (optional helper)
+      - name: Setup NuGet
         uses: NuGet/setup-nuget@v2
 
       - name: Restore NuGet packages
-        run: nuget restore BadSuccessor.sln
+        run: nuget restore "${{ steps.find_sln.outputs.path }}"
 
-      - name: Build solution (Release | Any CPU)
-        run: msbuild BadSuccessor.sln /p:Configuration=Release /p:Platform="Any CPU" /m
+      - name: Build solution (Release)
+        run: msbuild "${{ steps.find_sln.outputs.path }}" /p:Configuration=Release /p:Platform="Any CPU" /m
 
       - name: Show Release outputs (debug)
         run: |
@@ -55,7 +63,7 @@ jobs:
       - name: Upload build artifacts (any exe in bin/Release)
         uses: actions/upload-artifact@v4
         with:
-          name: BadSuccessor-executables
+          name: build-executables
           path: |
             **/bin/Release/**/*.exe
             **/bin/Release/**/*.msi
